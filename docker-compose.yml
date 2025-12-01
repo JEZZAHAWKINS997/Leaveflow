@@ -4,116 +4,76 @@ services:
   # PostgreSQL Database
   db:
     container_name: leaveboard-db
-    image: supabase/postgres:15.1.0.117
+    image: postgres:15-alpine
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     volumes:
-      - ./volumes/db/data:/var/lib/postgresql/data:Z
-      - ./volumes/db/init:/docker-entrypoint-initdb.d:Z
+      - ./data/postgres:/var/lib/postgresql/data
+      - ./init/db:/docker-entrypoint-initdb.d
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: postgres
+      POSTGRES_USER: ${DB_USER:-leaveboard}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME:-leaveboard}
     healthcheck:
-      test: pg_isready -U postgres -h localhost
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-leaveboard}"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 5
 
-  # Supabase Auth (GoTrue)
-  auth:
-    container_name: leaveboard-auth
-    image: supabase/gotrue:v2.99.0
-    depends_on:
-      db:
-        condition: service_healthy
+  # Redis for caching/sessions
+  redis:
+    container_name: leaveboard-redis
+    image: redis:7-alpine
     restart: unless-stopped
     ports:
-      - "9999:9999"
-    environment:
-      GOTRUE_API_HOST: 0.0.0.0
-      GOTRUE_API_PORT: 9999
-      API_EXTERNAL_URL: ${API_URL:-http://localhost:3080}
-      GOTRUE_DB_DRIVER: postgres
-      GOTRUE_DB_DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
-      GOTRUE_SITE_URL: ${SITE_URL:-http://localhost:3080}
-      GOTRUE_URI_ALLOW_LIST: "*"
-      GOTRUE_DISABLE_SIGNUP: "false"
-      GOTRUE_JWT_ADMIN_ROLES: service_role
-      GOTRUE_JWT_AUD: authenticated
-      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
-      GOTRUE_JWT_EXP: 3600
-      GOTRUE_JWT_SECRET: ${JWT_SECRET}
-      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
-      GOTRUE_MAILER_AUTOCONFIRM: "true"
-
-  # PostgREST API
-  rest:
-    container_name: leaveboard-rest
-    image: postgrest/postgrest:v11.2.0
-    depends_on:
-      db:
-        condition: service_healthy
-    restart: unless-stopped
-    ports:
-      - "3001:3000"
-    environment:
-      PGRST_DB_URI: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
-      PGRST_DB_SCHEMAS: public
-      PGRST_DB_ANON_ROLE: anon
-      PGRST_JWT_SECRET: ${JWT_SECRET}
-
-  # Supabase Studio (Admin UI)
-  studio:
-    container_name: leaveboard-studio
-    image: supabase/studio:20231123-64a766a
-    restart: unless-stopped
-    ports:
-      - "3002:3000"
-    environment:
-      STUDIO_PG_META_URL: http://meta:8080
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      DEFAULT_ORGANIZATION_NAME: LeaveBoard
-      DEFAULT_PROJECT_NAME: leaveboard
-      SUPABASE_URL: http://localhost:3080
-      SUPABASE_PUBLIC_URL: http://localhost:3080
-      SUPABASE_ANON_KEY: ${ANON_KEY}
-      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
-
-  # Postgres Meta (for Studio)
-  meta:
-    container_name: leaveboard-meta
-    image: supabase/postgres-meta:v0.68.0
-    depends_on:
-      db:
-        condition: service_healthy
-    restart: unless-stopped
-    environment:
-      PG_META_PORT: 8080
-      PG_META_DB_HOST: db
-      PG_META_DB_PORT: 5432
-      PG_META_DB_NAME: postgres
-      PG_META_DB_USER: postgres
-      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD}
-
-  # Kong API Gateway - Main entry point on port 3080
-  kong:
-    container_name: leaveboard-kong
-    image: kong:2.8.1
-    restart: unless-stopped
-    ports:
-      - "3080:8000"
-    environment:
-      KONG_DATABASE: "off"
-      KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
-      KONG_DNS_ORDER: LAST,A,CNAME
-      KONG_PLUGINS: request-transformer,cors,key-auth,acl
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
-      - ./volumes/kong/kong.yml:/var/lib/kong/kong.yml:ro
+      - ./data/redis:/data
+    command: redis-server --appendonly yes
+
+  # API Server (Base44 compatible)
+  api:
+    container_name: leaveboard-api
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-3080}:3080"
+    environment:
+      NODE_ENV: production
+      PORT: 3080
+      DATABASE_URL: postgres://${DB_USER:-leaveboard}:${DB_PASSWORD}@db:5432/${DB_NAME:-leaveboard}
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      APP_URL: ${APP_URL:-http://localhost:3080}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@leaveboard.local}
     depends_on:
-      - auth
-      - rest
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  # Web Application
+  web:
+    container_name: leaveboard-web
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-80}:80"
+      - "${WEB_SSL_PORT:-443}:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - api
 
 networks:
   default:
