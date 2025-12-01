@@ -172,22 +172,22 @@ services:
       timeout: 5s
       retries: 10
 
-  # LeaveBoard Application
-  leaveboard:
-    container_name: leaveboard-app
-    build:
-      context: ./app
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    ports:
-      - "${APP_PORT:-80}:80"
-    environment:
-      VITE_SUPABASE_URL: http://kong:8000
-      VITE_SUPABASE_ANON_KEY: ${ANON_KEY}
-    depends_on:
-      - kong
-      - auth
-      - rest
+  # LeaveBoard Application (optional - uncomment when you have app source)
+  # leaveboard:
+  #   container_name: leaveboard-app
+  #   build:
+  #     context: ./app
+  #     dockerfile: Dockerfile
+  #   restart: unless-stopped
+  #   ports:
+  #     - "${APP_PORT:-80}:80"
+  #   environment:
+  #     VITE_SUPABASE_URL: http://kong:8000
+  #     VITE_SUPABASE_ANON_KEY: ${ANON_KEY}
+  #   depends_on:
+  #     - kong
+  #     - auth
+  #     - rest
 
 volumes:
   db-data:
