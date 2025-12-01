@@ -1,0 +1,57 @@
+_format_version: "2.1"
+_transform: true
+
+services:
+  # Auth endpoints
+  - name: auth
+    url: http://auth:9999
+    routes:
+      - name: auth-all
+        paths:
+          - /auth/v1
+        strip_path: true
+    plugins:
+      - name: cors
+        config:
+          origins:
+            - "*"
+          methods:
+            - GET
+            - POST
+            - PUT
+            - DELETE
+            - OPTIONS
+          headers:
+            - Authorization
+            - Content-Type
+            - apikey
+            - x-client-info
+          credentials: true
+
+  # REST API endpoints
+  - name: rest
+    url: http://rest:3000
+    routes:
+      - name: rest-all
+        paths:
+          - /rest/v1
+        strip_path: true
+    plugins:
+      - name: cors
+        config:
+          origins:
+            - "*"
+          methods:
+            - GET
+            - POST
+            - PUT
+            - DELETE
+            - PATCH
+            - OPTIONS
+          headers:
+            - Authorization
+            - Content-Type
+            - apikey
+            - x-client-info
+            - Prefer
+          credentials: true
